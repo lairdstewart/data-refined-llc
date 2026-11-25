@@ -11,8 +11,12 @@ Run (deployed + spawned, so it survives the local client exiting;
 `modal run --detach` was cancelled when the client was killed):
   modal deploy training/train.py::APP
   python -c "import modal; modal.Function.from_name('drllc-train','train').spawn()"
-Control run on the unfiltered data (after prepare_data.py --variant full):
-  python -c "import modal; modal.Function.from_name('drllc-train','train').spawn('tetrahedron-3m-full', 50000, 'full')"
+Row-aligned pair (after prepare_data.py --variant nogithub / --variant full):
+  ...spawn('tetrahedron-3m-aligned-nogithub', 50000, 'aligned_nogithub')
+  ...spawn('tetrahedron-3m-aligned-full', 50000, 'aligned_full')
+`variant` names the data file /vol/data/<variant>_train.npy. The default
+"nogithub" is the chunk-shuffled data used by the first run
+(tetrahedron-3m-nogithub, built by prepare_data.py at commit 2a4e34c).
 Short validation run:
   modal run training/train.py --run-name validate --max-steps 1000
 """
@@ -53,7 +57,7 @@ def train(run_name: str = "tetrahedron-3m-nogithub", max_steps: int = 50_000, va
     os.makedirs(ckpt_dir, exist_ok=True)
     resume_path = f"{run_dir}/resume.pt"
 
-    data_path = f"/vol/data/{variant}_train.npy"  # built by prepare_data.py --variant
+    data_path = f"/vol/data/{variant}_train.npy"  # see module docstring
     data = np.load(data_path, mmap_mode="r")
     assert data.shape[0] >= max_steps * BATCH and data.shape[1] == 1024, data.shape
 
