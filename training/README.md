@@ -4,7 +4,7 @@ Retrains `timaeus/tetrahedron-3m-og` (the model in Wang et al. 2024) with GitHub
 
 ## Steps
 1. `modal run training/prepare_data.py` downloads `timaeus/dsir-pile-13m` and drops every row whose `pile_set_name` contains `Github`. DM Mathematics is kept. It then tokenizes the rows with `timaeus/TinyStories-tokenizer-5k`, joins them with EOS, cuts the stream into 1023-token chunks, prepends BOS, shuffles with seed 42 and keeps 5,000,000 sequences.
-2. `modal run --detach training/train.py` runs 50,000 steps at batch 100 in fp32 on an A10. It writes `checkpoint_XXXXXXX.pth` every 100 steps (501 files, TransformerLens state dicts in the same format as the original) and `losses.txt` to the Modal Volume `data-refined-llc` under `/runs/tetrahedron-3m-nogithub/`. It resumes from `resume.pt` if it is preempted.
+2. `modal deploy training/train.py::APP`, then `modal.Function.from_name('drllc-train', 'train').spawn()`, runs 50,000 steps at batch 100 in fp32 on an A10. It writes `checkpoint_XXXXXXX.pth` every 100 steps (501 files, TransformerLens state dicts in the same format as the original) and `losses.txt` to the Modal Volume `data-refined-llc` under `/runs/tetrahedron-3m-nogithub/`. It resumes from `resume.pt` if it is preempted.
 
 ## Fidelity to the original
 - The hyperparameters come from `timaeus-research/paper-rllcs-2024` (`figures/*/training.yaml`, `remaining.yaml`).

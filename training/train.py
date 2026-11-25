@@ -7,8 +7,10 @@ model_seed 1; AdamW lr 1e-3, betas (0.9, 0.999), eps 1e-8, weight decay 0.05,
 constant LR, no warmup, grad-norm clip 1.0, batch 100, fp32, 50,000 steps,
 checkpoint every 100 steps (plus step 0).
 
-Run (detached, survives the local client):
-  modal run --detach training/train.py
+Run (deployed + spawned, so it survives the local client exiting;
+`modal run --detach` was cancelled when the client was killed):
+  modal deploy training/train.py::APP
+  python -c "import modal; modal.Function.from_name('drllc-train','train').spawn()"
 Short validation run:
   modal run training/train.py --run-name validate --max-steps 1000
 """
