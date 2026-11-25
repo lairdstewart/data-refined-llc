@@ -17,8 +17,8 @@ Both runs therefore read the same text in the same order; the no-GitHub run
 skips the GitHub rows, so its stream runs ahead of the full one by at most
 0.19% of tokens.
 
-Run:  modal run training/prepare_data.py --variant nogithub
-      modal run training/prepare_data.py --variant full
+Run:  uv run modal run training/prepare_data.py --variant nogithub
+      uv run modal run training/prepare_data.py --variant full
 Output: /vol/data/aligned_<variant>_train.npy  (uint16, [5_000_000, 1024])
 """
 import modal

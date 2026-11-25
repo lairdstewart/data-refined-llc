@@ -36,7 +36,7 @@ Source key:
 | Setting | Value | Source |
 |---|---|---|
 | Base dataset | `timaeus/dsir-pile-13m` | Inferred. The paper says "a subset of the DSIR-filtered Pile". This is Timaeus's 13M-row DSIR Pile set, and their own no-GitHub run used a filtered copy of it. |
-| GitHub filter | Drop rows whose `pile_set_name` contains `Github` | Choice, per your instructions. It drops 17,849 rows, the same count as `timaeus/dsir-pile-13m-filtered-for-github`. |
+| GitHub filter (`nogithub` variant) | Drop rows whose `pile_set_name` contains `Github` | Choice, per the experiment design. It drops 17,849 rows, the same count as `timaeus/dsir-pile-13m-filtered-for-github`. |
 | Sequence format | Rows joined with EOS, cut into 1023-token chunks, BOS (= EOS id) prepended | Inferred. The original final checkpoint scores 3.22 on this format, matching its training loss of about 3.2. Other formats score 3.37 to 3.53. This is also TransformerLens's `tokenize_and_concatenate` convention. |
-| Data order | Chunks shuffled with seed 42, first 5M used | Choice. The original order is unknown. Config `seed: 42` is the Trainer seed. |
+| Data order | Rows shuffled with seed 42 (one permutation shared by all variants), then joined and cut into sequences, first 5M used in order | Choice. The original order is unknown; `seed: 42` reuses the Config Trainer seed. See README "Data pipeline". |
 | Loss | Mean next-token cross-entropy over the 1023 predicted positions | Inferred: TransformerLens `return_type="loss"`. |

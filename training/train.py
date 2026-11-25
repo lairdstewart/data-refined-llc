@@ -1,24 +1,13 @@
-"""Retrain timaeus/tetrahedron-3m-og on the Pile-13m, with or without GitHub.
+"""Train a tetrahedron-3m model (2-layer attention-only transformer) on Modal.
 
-Matches the original run's config (paper-rllcs-2024 figures/*/training.yaml
-and remaining.yaml): 2-layer attention-only TransformerLens model, d_model 256,
-8 heads of d_head 32, n_ctx 1024, d_vocab 5000, shortformer positions, LN,
-model_seed 1; AdamW lr 1e-3, betas (0.9, 0.999), eps 1e-8, weight decay 0.05,
-constant LR, no warmup, grad-norm clip 1.0, batch 100, fp32, 50,000 steps,
-checkpoint every 100 steps (plus step 0).
+Settings match timaeus/tetrahedron-3m-og; see HYPERPARAMETERS.md for sources.
+Writes checkpoints every 100 steps and losses.txt to /runs/<run_name>/ on the
+`data-refined-llc` volume, and resumes from resume.pt after preemption.
 
-Run (deployed + spawned, so it survives the local client exiting;
-`modal run --detach` was cancelled when the client was killed):
-  modal deploy training/train.py::APP
-  python -c "import modal; modal.Function.from_name('drllc-train','train').spawn()"
-Row-aligned pair (after prepare_data.py --variant nogithub / --variant full):
-  ...spawn('tetrahedron-3m-aligned-nogithub', 50000, 'aligned_nogithub')
-  ...spawn('tetrahedron-3m-aligned-full', 50000, 'aligned_full')
-`variant` names the data file /vol/data/<variant>_train.npy. The default
-"nogithub" is the chunk-shuffled data used by the first run
-(tetrahedron-3m-nogithub, built by prepare_data.py at commit 2a4e34c).
-Short validation run:
-  modal run training/train.py --run-name validate --max-steps 1000
+Deploy, then start runs with launch.py (see README.md):
+    uv run modal deploy training/train.py::APP
+Short interactive check (cancelled if the client exits):
+    uv run modal run training/train.py --run-name validate --max-steps 1000 --variant aligned_full
 """
 import modal
 

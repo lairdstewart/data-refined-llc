@@ -1,20 +1,52 @@
-# No-GitHub retrain of tetrahedron-3m
+# Training
 
-Retrains `timaeus/tetrahedron-3m-og` (the model in Wang et al. 2024) with GitHub data removed, for a like-for-like comparison.
+Trains two copies of the tetrahedron-3m model from Wang et al. 2024. Every setting matches between them except the training data:
 
-## Steps
-1. `modal run training/prepare_data.py --variant nogithub` and `--variant full` build two row-aligned datasets from `timaeus/dsir-pile-13m`. Every row is tokenized with `timaeus/TinyStories-tokenizer-5k` and followed by EOS. All 12.8M rows are shuffled with seed 42, using the same permutation for both variants. `nogithub` then drops rows whose `pile_set_name` contains `Github`; DM Mathematics is kept. The rows are joined, cut into consecutive 1023-token sequences with BOS prepended, and the first 5,000,000 sequences are kept in order. Output: `/vol/data/aligned_<variant>_train.npy`.
-2. `modal deploy training/train.py::APP`, then `modal.Function.from_name('drllc-train', 'train').spawn(run_name, 50000, 'aligned_<variant>')`, runs 50,000 steps at batch 100 in fp32 on an A10. It writes `checkpoint_XXXXXXX.pth` every 100 steps (501 files, TransformerLens state dicts in the same format as the original) and `losses.txt` to the Modal Volume `data-refined-llc` under `/runs/<run_name>/`. It resumes from `resume.pt` if it is preempted.
+| Run | Data |
+|---|---|
+| `tetrahedron-3m-aligned-full` | `timaeus/dsir-pile-13m`, all rows |
+| `tetrahedron-3m-aligned-nogithub` | The same rows with the GitHub rows removed |
 
-## Why the two runs are aligned
-Both runs use the same init (`seed=1`) and read the same rows in the same order. The no-GitHub run skips the GitHub rows, so by the end its stream is ahead by at most 0.19% of tokens. The only systematic difference between them is the GitHub data. Wang et al. Appendix G found that seed-to-seed variation can change how many induction heads develop. Shuffling sequences independently in each run would add noise on that scale, so both runs share one ordering instead.
+Comparing these two runs isolates the effect of GitHub data on the model. The hyperparameters, and where each one comes from, are in [HYPERPARAMETERS.md](HYPERPARAMETERS.md).
 
-The first run, `tetrahedron-3m-nogithub`, used an earlier pipeline that shuffled sequences rather than rows (commit 2a4e34c). It is not aligned with the control.
+## Setup
+```
+uv sync
+uv run modal setup   # once, to authenticate with Modal
+```
+The scripts run on Modal and install their own dependencies there. Locally you only need `modal`.
 
-## Fidelity to the original
-- The hyperparameters come from `timaeus-research/paper-rllcs-2024` (`figures/*/training.yaml`, `remaining.yaml`).
-- Sequence format: on held-out rows, the original final checkpoint scores 3.22 on BOS-prefixed EOS-joined chunks, matching its training loss of about 3.2. Every other format I tried scores 3.37 to 3.53.
-- A 1,000-step trial tracks the original `losses.txt`. The 100-step mean loss was 5.67 vs. 5.76 at step 100, 4.50 vs. 4.53 at step 500, and 4.32 vs. 4.33 at step 1,000.
-- Known differences: the original was trained on TPUs and I trained on a GPU in strict fp32, the data order differs, and the TransformerLens init with `seed=1` matches the original's statistics but not its exact values.
-- The filter removed 17,849 rows (0.14% of rows), which matches `timaeus/dsir-pile-13m-filtered-for-github`. Those rows hold 13.05M tokens, or 0.19% of the 6.81B tokens. Only 6,840 of them are pure GitHub; the rest also contain text from other Pile sets.
-- See `HYPERPARAMETERS.md` for the source of each setting.
+## Data pipeline
+`prepare_data.py` turns the 12.8M rows of `timaeus/dsir-pile-13m` into 5,000,000 training sequences of 1024 tokens (50,000 steps × batch 100):
+
+1. **Tokenize.** Each row, a text snippet averaging about 530 tokens, is tokenized with `timaeus/TinyStories-tokenizer-5k` and followed by an EOS token. This step runs once and both variants share it.
+2. **Shuffle rows.** All rows are shuffled with seed 42. Both variants use the same permutation.
+3. **Filter.** `nogithub` drops every row whose `pile_set_name` contains `Github`: 17,849 rows, holding 13.05M tokens (0.19%). Only 6,840 of those rows are pure GitHub; the rest also contain text from other Pile sets. DM Mathematics is kept. `full` drops nothing.
+4. **Pack into sequences.** The rows are joined in shuffled order, cut into consecutive 1023-token pieces, and given a BOS token (the same id as EOS) at the front. The first 5M sequences are used in order: step `s` trains on sequences `100·s` to `100·s + 99`.
+
+This format reproduces the original model's training loss; see HYPERPARAMETERS.md.
+
+Because both variants share the row order, the two runs read the same text in the same order, and the no-GitHub run simply skips the GitHub rows. Their sequences are identical up to the first GitHub row; after that the no-GitHub stream runs slightly ahead, by at most 0.19% of tokens. Both runs also share the same initialization (`seed=1`), so the GitHub data is the only systematic difference between them.
+
+Output: `/vol/data/aligned_<variant>_train.npy` on the Modal Volume `data-refined-llc`.
+
+## Running
+```
+uv run modal run training/prepare_data.py --variant full
+uv run modal run training/prepare_data.py --variant nogithub
+uv run modal deploy training/train.py::APP
+uv run python training/launch.py --run-name tetrahedron-3m-aligned-full --data aligned_full
+uv run python training/launch.py --run-name tetrahedron-3m-aligned-nogithub --data aligned_nogithub
+```
+Each run takes about 10 hours on an A10 and costs about $11. Runs keep going after the local client exits, and they resume from `resume.pt` if Modal preempts them.
+
+## Outputs
+Each run writes to `/runs/<run_name>/` on the volume:
+- `checkpoints/checkpoint_XXXXXXX.pth`: step 0, then every 100 steps (501 files). These are TransformerLens state dicts in the same format as `timaeus/tetrahedron-3m-og`.
+- `losses.txt`: the training loss at every step.
+- `resume.pt`: model and optimizer state, saved every 500 steps.
+- `DONE`: written when the run finishes.
+
+To download: `uv run modal volume get data-refined-llc /runs/<run_name> ./runs/`
+
+The volume also holds `tetrahedron-3m-nogithub`, an earlier no-GitHub run stopped at about step 42k. It used a pipeline that shuffled sequences instead of rows, so it is not aligned with the runs above.
