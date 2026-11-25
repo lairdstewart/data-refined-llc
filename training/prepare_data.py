@@ -1,14 +1,17 @@
-"""Build the no-GitHub training set for the tetrahedron-3m retrain.
+"""Build training sets for the tetrahedron-3m retrains.
 
 Source: timaeus/dsir-pile-13m (the data behind timaeus/tetrahedron-3m-og).
-Filter: drop every row whose metadata.pile_set_name contains "Github".
+Variants:
+  nogithub  drop every row whose metadata.pile_set_name contains "Github"
+  full      keep every row (control run, same pipeline as nogithub)
 Format (matches the original, see README): tokenize each row with
 timaeus/TinyStories-tokenizer-5k, join rows with EOS, cut the stream into
 1023-token chunks and prepend BOS (= EOS id), giving 1024-token sequences.
 Chunks are shuffled with seed 42 and the first 50,000 x 100 are kept, in
 training order.
 
-Run:  modal run training/prepare_data.py
+Run:  modal run training/prepare_data.py --variant nogithub
+      modal run training/prepare_data.py --variant full
 """
 import modal
 
@@ -20,10 +23,8 @@ IMG = modal.Image.debian_slim(python_version="3.11").pip_install(
 
 SRC_URL = "https://huggingface.co/datasets/timaeus/dsir-pile-13m/resolve/main/train_1.jsonl"
 RAW = "/vol/raw/train_1.jsonl"
-TOK_DIR = "/vol/tok_nogithub"
-OUT = "/vol/data/nogithub_train.npy"
 TOKENIZER = "timaeus/TinyStories-tokenizer-5k"
-DROP_SET = "Github"
+VARIANTS = {"nogithub": {"Github"}, "full": set()}  # variant -> pile sets to drop
 N_SHARDS = 64
 CTX = 1024
 N_STEPS, BATCH = 50_000, 100
@@ -45,12 +46,21 @@ def download():
     return os.path.getsize(RAW)
 
 
+def tok_dir(variant: str) -> str:
+    return f"/vol/tok_{variant}"
+
+
+def out_path(variant: str) -> str:
+    return f"/vol/data/{variant}_train.npy"
+
+
 @APP.function(image=IMG, volumes={"/vol": VOL}, timeout=3600, cpu=2, memory=8192)
-def tokenize_shard(i: int):
+def tokenize_shard(i: int, variant: str):
     import json, os
     import numpy as np
     from transformers import AutoTokenizer
 
+    drop = VARIANTS[variant]
     tok = AutoTokenizer.from_pretrained(TOKENIZER)
     eos = tok.eos_token_id
     size = os.path.getsize(RAW)
@@ -66,7 +76,7 @@ def tokenize_shard(i: int):
             if not line:
                 break
             row = json.loads(line)
-            if DROP_SET in row["metadata"]["pile_set_name"]:
+            if drop & set(row["metadata"]["pile_set_name"]):
                 dropped += 1
                 continue
             kept += 1
@@ -77,14 +87,14 @@ def tokenize_shard(i: int):
             out.extend(ids)
             out.append(eos)
     arr = np.asarray(out, dtype=np.uint16)
-    os.makedirs(TOK_DIR, exist_ok=True)
-    np.save(f"{TOK_DIR}/shard_{i:03d}.npy", arr)
+    os.makedirs(tok_dir(variant), exist_ok=True)
+    np.save(f"{tok_dir(variant)}/shard_{i:03d}.npy", arr)
     VOL.commit()
     return {"shard": i, "kept": kept, "dropped": dropped, "tokens": int(arr.size)}
 
 
 @APP.function(image=IMG, volumes={"/vol": VOL}, timeout=3600, cpu=4, memory=65536)
-def assemble():
+def assemble(variant: str):
     import json, os
     import numpy as np
     from transformers import AutoTokenizer
@@ -92,7 +102,7 @@ def assemble():
     eos = AutoTokenizer.from_pretrained(TOKENIZER).eos_token_id
 
     VOL.reload()
-    stream = np.concatenate([np.load(f"{TOK_DIR}/shard_{i:03d}.npy") for i in range(N_SHARDS)])
+    stream = np.concatenate([np.load(f"{tok_dir(variant)}/shard_{i:03d}.npy") for i in range(N_SHARDS)])
     L = CTX - 1
     n_chunks = stream.size // L
     need = N_STEPS * BATCH
@@ -102,23 +112,25 @@ def assemble():
     data = np.empty((need, CTX), dtype=np.uint16)
     data[:, 0] = eos
     data[:, 1:] = chunks[order]
-    os.makedirs(os.path.dirname(OUT), exist_ok=True)
-    np.save(OUT, data)
-    meta = {"total_tokens": int(stream.size), "n_chunks": int(n_chunks), "kept_chunks": need, "seed": SEED}
-    json.dump(meta, open(OUT.replace(".npy", "_meta.json"), "w"))
+    out = out_path(variant)
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+    np.save(out, data)
+    meta = {"variant": variant, "total_tokens": int(stream.size), "n_chunks": int(n_chunks), "kept_chunks": need, "seed": SEED}
+    json.dump(meta, open(out.replace(".npy", "_meta.json"), "w"))
     VOL.commit()
     return meta
 
 
 @APP.local_entrypoint()
-def main():
+def main(variant: str = "nogithub"):
     import json
 
+    assert variant in VARIANTS, f"variant must be one of {list(VARIANTS)}"
     print("downloaded bytes:", download.remote())
-    stats = list(tokenize_shard.map(range(N_SHARDS)))
+    stats = list(tokenize_shard.map(range(N_SHARDS), kwargs={"variant": variant}))
     kept = sum(s["kept"] for s in stats)
     dropped = sum(s["dropped"] for s in stats)
-    print(f"rows kept {kept:,}, dropped (Github) {dropped:,}, tokens {sum(s['tokens'] for s in stats):,}")
-    meta = assemble.remote()
-    meta.update(rows_kept=kept, rows_dropped_github=dropped)
+    print(f"[{variant}] rows kept {kept:,}, dropped {dropped:,}, tokens {sum(s['tokens'] for s in stats):,}")
+    meta = assemble.remote(variant)
+    meta.update(rows_kept=kept, rows_dropped=dropped)
     print(json.dumps(meta, indent=1))

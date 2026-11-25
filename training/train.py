@@ -1,4 +1,4 @@
-"""Retrain timaeus/tetrahedron-3m-og on the Pile-13m with GitHub removed.
+"""Retrain timaeus/tetrahedron-3m-og on the Pile-13m, with or without GitHub.
 
 Matches the original run's config (paper-rllcs-2024 figures/*/training.yaml
 and remaining.yaml): 2-layer attention-only TransformerLens model, d_model 256,
@@ -11,6 +11,8 @@ Run (deployed + spawned, so it survives the local client exiting;
 `modal run --detach` was cancelled when the client was killed):
   modal deploy training/train.py::APP
   python -c "import modal; modal.Function.from_name('drllc-train','train').spawn()"
+Control run on the unfiltered data (after prepare_data.py --variant full):
+  python -c "import modal; modal.Function.from_name('drllc-train','train').spawn('tetrahedron-3m-full', 50000, 'full')"
 Short validation run:
   modal run training/train.py --run-name validate --max-steps 1000
 """
@@ -22,7 +24,6 @@ IMG = modal.Image.debian_slim(python_version="3.11").pip_install(
     "numpy==2.1.3", "torch==2.5.1", "transformers==4.46.3", "transformer_lens==2.11.0"
 )
 
-DATA = "/vol/data/nogithub_train.npy"
 RUNS = "/vol/runs"
 BATCH, MICRO = 100, 25
 SAVE_EVERY, RESUME_EVERY = 100, 500
@@ -41,7 +42,7 @@ def make_model():
 
 @APP.function(image=IMG, volumes={"/vol": VOL}, gpu="A10", memory=16384,
               timeout=24 * 3600, retries=modal.Retries(max_retries=5, initial_delay=10.0))
-def train(run_name: str = "tetrahedron-3m-nogithub", max_steps: int = 50_000):
+def train(run_name: str = "tetrahedron-3m-nogithub", max_steps: int = 50_000, variant: str = "nogithub"):
     import json, os, time
     import numpy as np
     import torch
@@ -52,7 +53,8 @@ def train(run_name: str = "tetrahedron-3m-nogithub", max_steps: int = 50_000):
     os.makedirs(ckpt_dir, exist_ok=True)
     resume_path = f"{run_dir}/resume.pt"
 
-    data = np.load(DATA, mmap_mode="r")
+    data_path = f"/vol/data/{variant}_train.npy"  # built by prepare_data.py --variant
+    data = np.load(data_path, mmap_mode="r")
     assert data.shape[0] >= max_steps * BATCH and data.shape[1] == 1024, data.shape
 
     model = make_model()
@@ -67,7 +69,7 @@ def train(run_name: str = "tetrahedron-3m-nogithub", max_steps: int = 50_000):
         print(f"resumed at step {step}", flush=True)
     else:
         torch.save(model.state_dict(), f"{ckpt_dir}/checkpoint_{0:07d}.pth")
-        json.dump({"max_steps": max_steps, "batch": BATCH, "data": DATA}, open(f"{run_dir}/config.json", "w"))
+        json.dump({"max_steps": max_steps, "batch": BATCH, "data": data_path, "variant": variant}, open(f"{run_dir}/config.json", "w"))
 
     model.train()
     t0 = time.time()
@@ -100,5 +102,5 @@ def train(run_name: str = "tetrahedron-3m-nogithub", max_steps: int = 50_000):
 
 
 @APP.local_entrypoint()
-def main(run_name: str = "tetrahedron-3m-nogithub", max_steps: int = 50_000):
-    print(train.remote(run_name, max_steps))
+def main(run_name: str = "tetrahedron-3m-nogithub", max_steps: int = 50_000, variant: str = "nogithub"):
+    print(train.remote(run_name, max_steps, variant))
