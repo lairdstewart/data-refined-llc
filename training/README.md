@@ -3,10 +3,13 @@
 Retrains `timaeus/tetrahedron-3m-og` (the model in Wang et al. 2024) with GitHub data removed, for a like-for-like comparison.
 
 ## Steps
-1. `modal run training/prepare_data.py --variant nogithub` downloads `timaeus/dsir-pile-13m` and drops every row whose `pile_set_name` contains `Github`. DM Mathematics is kept. It then tokenizes the rows with `timaeus/TinyStories-tokenizer-5k`, joins them with EOS, cuts the stream into 1023-token chunks, prepends BOS, shuffles with seed 42 and keeps 5,000,000 sequences. `--variant full` builds the control set the same way without dropping any rows (`/vol/data/full_train.npy`).
-2. `modal deploy training/train.py::APP`, then `modal.Function.from_name('drllc-train', 'train').spawn()`, runs 50,000 steps at batch 100 in fp32 on an A10. It writes `checkpoint_XXXXXXX.pth` every 100 steps (501 files, TransformerLens state dicts in the same format as the original) and `losses.txt` to the Modal Volume `data-refined-llc` under `/runs/tetrahedron-3m-nogithub/`. It resumes from `resume.pt` if it is preempted. For the control, run `.spawn('tetrahedron-3m-full', 50000, 'full')`, which writes to `/runs/tetrahedron-3m-full/`.
+1. `modal run training/prepare_data.py --variant nogithub` and `--variant full` build two row-aligned datasets from `timaeus/dsir-pile-13m`. Every row is tokenized with `timaeus/TinyStories-tokenizer-5k` and followed by EOS. All 12.8M rows are shuffled with seed 42, using the same permutation for both variants. `nogithub` then drops rows whose `pile_set_name` contains `Github`; DM Mathematics is kept. The rows are joined, cut into consecutive 1023-token sequences with BOS prepended, and the first 5,000,000 sequences are kept in order. Output: `/vol/data/aligned_<variant>_train.npy`.
+2. `modal deploy training/train.py::APP`, then `modal.Function.from_name('drllc-train', 'train').spawn(run_name, 50000, 'aligned_<variant>')`, runs 50,000 steps at batch 100 in fp32 on an A10. It writes `checkpoint_XXXXXXX.pth` every 100 steps (501 files, TransformerLens state dicts in the same format as the original) and `losses.txt` to the Modal Volume `data-refined-llc` under `/runs/<run_name>/`. It resumes from `resume.pt` if it is preempted.
 
-The control run uses the same pipeline as the no-GitHub run, so the two differ only in their data. It is a better baseline than `timaeus/tetrahedron-3m-og`, which differs from our runs in hardware, precision, init values and data order.
+## Why the two runs are aligned
+Both runs use the same init (`seed=1`) and read the same rows in the same order. The no-GitHub run skips the GitHub rows, so by the end its stream is ahead by at most 0.19% of tokens. The only systematic difference between them is the GitHub data. Wang et al. Appendix G found that seed-to-seed variation can change how many induction heads develop. Shuffling sequences independently in each run would add noise on that scale, so both runs share one ordering instead.
+
+The first run, `tetrahedron-3m-nogithub`, used an earlier pipeline that shuffled sequences rather than rows (commit 2a4e34c). It is not aligned with the control.
 
 ## Fidelity to the original
 - The hyperparameters come from `timaeus-research/paper-rllcs-2024` (`figures/*/training.yaml`, `remaining.yaml`).
