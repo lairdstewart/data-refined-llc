@@ -32,7 +32,8 @@ STEPS = [0, 100] + list(range(200, 10_000, 200)) + list(range(10_000, 20_000, 40
 assert len(STEPS) == 107
 
 RUNS = {"full": "/vol/runs/tetrahedron-3m-aligned-full", "no-GitHub": "/vol/runs/tetrahedron-3m-aligned-nogithub",
-        "full-oginit": "/vol/runs/tetrahedron-3m-oginit-full"}
+        "full-oginit": "/vol/runs/tetrahedron-3m-oginit-full",
+        "full-oginit2": "/vol/runs/tetrahedron-3m-oginit2-full"}
 DATASETS = ("pile", "github")
 
 
