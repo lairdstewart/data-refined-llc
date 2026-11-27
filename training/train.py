@@ -35,7 +35,8 @@ def make_model():
 
 @APP.function(image=IMG, volumes={"/vol": VOL}, gpu="A10", memory=16384,
               timeout=24 * 3600, retries=modal.Retries(max_retries=5, initial_delay=10.0))
-def train(run_name: str = "tetrahedron-3m-nogithub", max_steps: int = 50_000, variant: str = "nogithub"):
+def train(run_name: str = "tetrahedron-3m-nogithub", max_steps: int = 50_000, variant: str = "nogithub",
+          init: str = ""):
     import json, os, time
     import numpy as np
     import torch
@@ -51,6 +52,8 @@ def train(run_name: str = "tetrahedron-3m-nogithub", max_steps: int = 50_000, va
     assert data.shape[0] >= max_steps * BATCH and data.shape[1] == 1024, data.shape
 
     model = make_model()
+    if init:  # e.g. /vol/init/tl111_seed1.pth from make_init.py (the original run's init)
+        model.load_state_dict(torch.load(init, map_location="cuda"))
     # HF Trainer (used for the original) decays every TransformerLens parameter:
     # none are named "bias" and TL's LayerNorm is not torch.nn.LayerNorm.
     opt = torch.optim.AdamW(model.parameters(), lr=1e-3, betas=(0.9, 0.999), eps=1e-8, weight_decay=0.05)
@@ -62,7 +65,7 @@ def train(run_name: str = "tetrahedron-3m-nogithub", max_steps: int = 50_000, va
         print(f"resumed at step {step}", flush=True)
     else:
         torch.save(model.state_dict(), f"{ckpt_dir}/checkpoint_{0:07d}.pth")
-        json.dump({"max_steps": max_steps, "batch": BATCH, "data": data_path, "variant": variant}, open(f"{run_dir}/config.json", "w"))
+        json.dump({"max_steps": max_steps, "batch": BATCH, "data": data_path, "variant": variant, "init": init or "tl2_seed1"}, open(f"{run_dir}/config.json", "w"))
 
     model.train()
     t0 = time.time()
@@ -95,5 +98,5 @@ def train(run_name: str = "tetrahedron-3m-nogithub", max_steps: int = 50_000, va
 
 
 @APP.local_entrypoint()
-def main(run_name: str = "tetrahedron-3m-nogithub", max_steps: int = 50_000, variant: str = "nogithub"):
-    print(train.remote(run_name, max_steps, variant))
+def main(run_name: str = "tetrahedron-3m-nogithub", max_steps: int = 50_000, variant: str = "nogithub", init: str = ""):
+    print(train.remote(run_name, max_steps, variant, init))

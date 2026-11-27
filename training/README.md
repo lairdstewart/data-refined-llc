@@ -38,6 +38,11 @@ uv run modal deploy training/train.py::APP
 uv run python training/launch.py --run-name tetrahedron-3m-aligned-full --data aligned_full
 uv run python training/launch.py --run-name tetrahedron-3m-aligned-nogithub --data aligned_nogithub
 ```
+To start from the original run's exact initial weights instead (see HYPERPARAMETERS.md, Init):
+```
+uv run modal run training/make_init.py --seed 1
+uv run python training/launch.py --run-name tetrahedron-3m-oginit-full --data aligned_full --init /vol/init/tl111_seed1.pth
+```
 Each run takes about 10 hours on an A10 and costs about $11. Runs keep going after the local client exits, and they resume from `resume.pt` if Modal preempts them.
 
 ## Outputs

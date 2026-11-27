@@ -17,7 +17,7 @@ Source key:
 | Positional embedding | Shortformer, learned | Paper, Config |
 | Normalization | LayerNorm with weight and bias (`LN`) | Paper ("included"). Checkpoint keys `ln1.w`/`ln1.b` show it is `LN`, not `LNPre`. |
 | act_fn | gelu (unused in an attention-only model) | Config |
-| Init | TransformerLens default, `seed=1` | Config (`model_seed: 1`). The statistics match checkpoint 0 (std 0.05), but the exact values don't. |
+| Init | TransformerLens default, `seed=1` | Config (`model_seed: 1`). The `aligned` runs used TransformerLens 2.11, which matches the original's `W_E`, `W_Q` and `W_U` but draws `W_K`, `W_V` and `W_O` differently. TransformerLens 1.11 reproduces every original step-0 weight to within one Adam step; `make_init.py` writes that init and `train.py --init` loads it. |
 
 ## Optimization
 | Setting | Value | Source |
@@ -38,5 +38,5 @@ Source key:
 | Base dataset | `timaeus/dsir-pile-13m` | Inferred. The paper says "a subset of the DSIR-filtered Pile". This is Timaeus's 13M-row DSIR Pile set, and their own no-GitHub run used a filtered copy of it. |
 | GitHub filter (`nogithub` variant) | Drop rows whose `pile_set_name` contains `Github` | Choice, per the experiment design. It drops 17,849 rows, the same count as `timaeus/dsir-pile-13m-filtered-for-github`. |
 | Sequence format | Rows joined with EOS, cut into 1023-token chunks, BOS (= EOS id) prepended | Inferred. The original final checkpoint scores 3.22 on this format, matching its training loss of about 3.2. Other formats score 3.37 to 3.53. This is also TransformerLens's `tokenize_and_concatenate` convention. |
-| Data order | Rows shuffled with seed 42 (one permutation shared by all variants), then joined and cut into sequences, first 5M used in order | Choice. The original order is unknown; `seed: 42` reuses the Config Trainer seed. See README "Data pipeline". |
+| Data order | Rows shuffled with seed 42 (one permutation shared by all variants), then joined and cut into sequences, first 5M used in order | Choice. The original order is unknown; `seed: 42` reuses the Config Trainer seed. See README "Data pipeline". The original probably trained on `timaeus/dsir-pile-10m-tokens` (5,192,450 pre-tokenized 1024-token rows, created before the run), but the original checkpoints' losses match none of the seed-42 or seed-0 permutations, the sequential order, or a NumPy seed-42 shuffle of it. |
 | Loss | Mean next-token cross-entropy over the 1023 predicted positions | Inferred: TransformerLens `return_type="loss"`. |
