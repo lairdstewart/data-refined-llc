@@ -33,7 +33,9 @@ assert len(STEPS) == 107
 
 RUNS = {"full": "/vol/runs/tetrahedron-3m-aligned-full", "no-GitHub": "/vol/runs/tetrahedron-3m-aligned-nogithub",
         "full-oginit": "/vol/runs/tetrahedron-3m-oginit-full",
-        "full-oginit2": "/vol/runs/tetrahedron-3m-oginit2-full"}
+        "full-oginit2": "/vol/runs/tetrahedron-3m-oginit2-full",
+        "full-oginit3": "/vol/runs/tetrahedron-3m-oginit3-full",
+        "full-oginit4": "/vol/runs/tetrahedron-3m-oginit4-full"}
 DATASETS = ("pile", "github")
 
 
